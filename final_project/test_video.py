@@ -22,14 +22,10 @@ while True:
         high_black = np.array([255, 255, 40]) # 40 or 30 
         black_mask = cv2.inRange(img_hsv, low_black, high_black)
         black = cv2.bitwise_and(frame, frame, mask=black_mask)
-        cv2.imshow('black_detection', black)
+        # cv2.imshow('black_detection', black)
         canny = cv2.Canny(black_mask, 50, 150)
         
-        '''
-        ROI: 我們感興趣的區塊, 設計一個矩陣
-        np.zeros去畫一張以canny為寬高的全黑的圖
-        cv2.fillPoly: 在roi_mask填上我們的ROI圖並設定那塊區域為255 因此被我們填充的區域(ROI)就是亮的
-        '''
+
         roi_mask = np.zeros(canny.shape, dtype=np.uint8)
         # ROI = np.array([[(0,800),(1400,800),(1400,350),(0,350)]])
         # ROI = np.array([[(0,150),(640,150),(640,0),(0,0)]])
