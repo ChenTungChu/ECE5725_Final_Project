@@ -2,9 +2,10 @@ import numpy as np
 import cv2
 import glob
 import time
+import sys
 import threading
 import RPi.GPIO as GPIO
-import myLib.calibrate_pi_camera as calib
+import myLib.calibrate_320_240 as calib
 
 
 ret = calib.ret
@@ -13,27 +14,40 @@ dist = calib.dist
 rvecs = calib.rvecs
 tvecs = calib.tvecs
 
+global p_left
+global p_right
+global p_left_speed
+global p_right_speed
+global TRIG
+global ECHO
+
+global stop_flag, turn_left_flag, turn_right_flag, emergency_stop
+stop_flag = turn_left_flag = turn_right_flag = emergency_stop = False
+
 
 class LaneDetectionThreads(object):
     def __init__(self):
         self.camera = cv2.VideoCapture(-1)
-        self.camera_thread = threading.Timer(1, self.camera_update)
+        self.camera.set(3, 320)
+        self.camera.set(4, 240)
+        self.camera_thread = threading.Timer(0.02, self.camera_update)
         self.camera_thread.start()
         self.frame = self.camera.read()[1]
-        self.l_curve = 10000
-        self.r_curve = 10000
+        self.l_curve = 1000
+        self.r_curve = 1000
         
         self.src = np.float32(
-                    [[100, 460],  # Bottom left
-                    [270,  308],  # Top left
-                    [370,  308],  # Top right
-                    [500,  460]]) # Bottom right
+                    [[0, 240],  # Bottom left
+                    [80,  160],  # Top left
+                    [240,  160],  # Top right
+                    [320,  240]]) # Bottom right
                 
         self.dst = np.float32(
-                    [[90,  480],  # Bottom left
-                    [90,     0],  # Top left
-                    [520,    0],  # Top right
-                    [520,  480]]) # Bottom right 
+                    [[0, 240],  # Bottom left
+                    [0,  0],  # Top left
+                    [320,  0],  # Top right
+                    [320,  240]]) # Bottom right
+
         
         
     def camera_update(self):
@@ -141,6 +155,7 @@ class LaneDetectionThreads(object):
         # HYPERPARAMETERS
         # Choose the number of sliding windows
         nwindows = 9
+        # nwindows = 6
         # Set the width of the windows +/- margin
         margin = 100
         # Set minimum number of pixels found to recenter window
@@ -212,6 +227,7 @@ class LaneDetectionThreads(object):
 
 
     def fit_polynomial(self, binary_warped):
+        global stop_flag, turn_left_flag, turn_right_flag
         # Find our lane pixels first
         leftx, lefty, rightx, righty, out_img = self.find_lane_pixels(binary_warped)
 
@@ -223,13 +239,37 @@ class LaneDetectionThreads(object):
             right_fit = np.polyfit(righty, rightx, 2)
             left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
             right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+            
+            # print(left_fitx)
+            
+                
+            
         except TypeError:
             # Avoids an error if `left` and `right_fit` are still none or incorrect
-            print('The function failed to fit a line!')
+            # stop_flag = True
+            try:
+                print("left = ", left_fit)
+            except:
+                # print("No left fit")
+                turn_left_flag = True
+            try:
+                print("right = ", right_fit)
+            except:
+                # print("No right fit")
+                turn_right_flag = True
+                
+            # if turn_left_flag and turn_right_flag:
+            #     stop_flag = True
+            #     turn_left_flag = False
+            #     turn_right_flag = False
+            #     print("Stopped (both flags)")
+                
+            
             left_fit = [1,1,0]
             right_fit = [1,1,0]
             left_fitx = 1*ploty**2 + 1*ploty
             right_fitx = 1*ploty**2 + 1*ploty
+            
                 
         ## Visualization ##
         # Colors in the left and right lane regions
@@ -285,6 +325,7 @@ class LaneDetectionThreads(object):
         return img
 
     def add_curvature(self, img, left_fit, right_fit, left_fitx, right_fitx,leftx, lefty, rightx, righty):
+        global p_left_speed, p_right_speed
         leftx = leftx[::-1]  # Reverse to match top-to-bottom in y
         rightx = rightx[::-1]  # Reverse to match top-to-bottom in y
         ploty = np.linspace(0, img.shape[0] - 1, img.shape[0])
@@ -295,8 +336,8 @@ class LaneDetectionThreads(object):
         right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
         # Define conversions in x and y from pixels space to meters
-        ym_per_pix = 25/480 # meters per pixel in y dimension
-        xm_per_pix = 3.7/640 # meters per pixel in x dimension
+        ym_per_pix = 3/240 # meters per pixel in y dimension
+        xm_per_pix = 0.2/320 # meters per pixel in x dimension
 
         # Fit new polynomials to x,y in world space
         y_eval = np.max(ploty)
@@ -312,15 +353,15 @@ class LaneDetectionThreads(object):
         curvature_word_l = 'Radius of left Curvature = ' + str(left_curverad) + '(m)'
         curvature_word_r = 'Radius of right Curvature = ' + str(right_curverad) + '(m)'
         
-        self.l_curve = left_curverad
-        self.r_curve = right_curverad
+        self.l_curve = float(left_curverad)
+        self.r_curve = float(right_curverad)
         
         
     #    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
         road_mid = img.shape[1]/2    
-        car_mid = (right_fitx[479] + left_fitx[479])/2
+        car_mid = (right_fitx[239] + left_fitx[239])/2
         
-        xm_per_pix = 3.7/(right_fitx[479] - left_fitx[479]) # meters per pixel in x dimension
+        xm_per_pix = 3.7/(right_fitx[239] - left_fitx[239]) # meters per pixel in x dimension
         mid_dev = car_mid - road_mid;
         mid_dev_meter = abs(mid_dev)*xm_per_pix
         mid_dev_meter = ("%.2f" % mid_dev_meter)
@@ -331,72 +372,218 @@ class LaneDetectionThreads(object):
                 mid_dev_word = 'Vehicle is '+ str( mid_dev_meter)+ 'm left of center'
         else:
             mid_dev_word = 'Vehicle is '+ str(mid_dev_meter)+ 'm left of center'
-        word_img = cv2.putText(img,curvature_word_l,(80,40),cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,255),2)
-        word_img = cv2.putText(img,curvature_word_r,(80,60),cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,255),2)
-        word_img = cv2.putText(img,mid_dev_word,(80,80),cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,255),2)
+            
+        l_speed = 'Left: ' + str(p_left_speed)
+        r_speed = 'Right: ' + str(p_right_speed)
+        word_img = cv2.putText(img,curvature_word_l,(20,20),cv2.FONT_HERSHEY_SIMPLEX,0.3,(228,48,174),2)
+        word_img = cv2.putText(img,curvature_word_r,(20,30),cv2.FONT_HERSHEY_SIMPLEX,0.3,(228,48,174),2)
+        word_img = cv2.putText(img,mid_dev_word,(20,40),cv2.FONT_HERSHEY_SIMPLEX,0.3,(228,48,174),2)
+        word_img = cv2.putText(img,l_speed,(100,20),cv2.FONT_HERSHEY_SIMPLEX,0.3,(0,255,0),2)
+        word_img = cv2.putText(img,r_speed,(100,40),cv2.FONT_HERSHEY_SIMPLEX,0.3,(0,255,0),2)
+        
+        
+        
         return word_img
 
 
 
-    def process_image(self):    
+    def process_image(self): 
 
         self.frame = cv2.undistort(self.frame, mtx, dist, None, mtx)
         # print(self.frame.shape[0], self.frame.shape[1])
         
         grad_x = self.abs_sobel_thresh(self.frame, orient='x', sobel_kernel=15, thresh=(30, 100))
-        
         grad_y = self.abs_sobel_thresh(self.frame, orient='y', sobel_kernel=15, thresh=(30, 100))
         
         mag_binary = self.mag_thres(self.frame, sobel_kernel=15, thresh=(50, 100))
-        
-        dir_binary = self.dir_thresh(self.frame, sobel_kernel=15, thresh=(0.7, 1.3))
-        
+
+        dir_binary = self.dir_thresh(self.frame, sobel_kernel=15, thresh=(0.7, 1.3))   
         hls_binary = self.hls_select(self.frame, thresh=(170, 255))
-            
+        
         # Run the function
         combined = self.combine_threshs(grad_x, grad_y, mag_binary, dir_binary, hls_binary, ksize=15)
         
-        warped =  self.perspective(combined)  
-        
+        warped =  self.perspective(combined) 
         region_img,left_fit,right_fit,left_fitx,right_fitx,leftx, lefty, rightx, righty,ploty = self.fit_polynomial(warped)
+        
         region_real_img =  self.unperspective(region_img)
+        region_real_img =  self.unperspective(region_img)
+        
         marked_img = self.mark_lanes(self.frame, region_real_img)
         region_real_img = region_real_img.astype(np.uint8)
         weighted_img = cv2.addWeighted(marked_img, 1, region_real_img, 0.5, 0)   
         self.frame = self.add_curvature(weighted_img, left_fit, right_fit, left_fitx, right_fitx,leftx, lefty, rightx, righty)
         
-
-
-    def mainFunc(self):
+        
+    def callback(self, channel):
+        if channel == 17:
+            print("Stopped by button interrupt!")
+            p_left.stop()
+            p_right.stop()
+            GPIO.cleanup()
+            self.camera.release()
+            cv2.destroyAllWindows()
+            sys.exit(0)
+    
+    def motor_setup(self):
+        global p_left
+        global p_right
         GPIO.setmode(GPIO.BCM)
-        # GPIO.setwarnings(False)
+        GPIO.setwarnings(False)
+        GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.add_event_detect(17, GPIO.FALLING, callback=self.callback, bouncetime=300)
         output_gpio = (5, 6, 16, 20, 21, 26)
         for b in output_gpio: GPIO.setup(b, GPIO.OUT)
+        
         # PWM is always high for stop, CW, and CCW
         GPIO.output(26, GPIO.HIGH) # PWMA
         GPIO.output(16, GPIO.HIGH) # PWMB
-
-        # try setting
+        
+        # PWM A
+        GPIO.output(5, GPIO.HIGH)
         GPIO.output(6, GPIO.LOW)
-        GPIO.output(5, GPIO.LOW)
-        GPIO.output(20, GPIO.HIGH)
+        # PWM B
+        GPIO.output(20, GPIO.LOW)
         GPIO.output(21, GPIO.HIGH)
+        
+        p_right = GPIO.PWM(26, 50)   # PWMA
+        p_left = GPIO.PWM(16, 50)    # PWMB 
+        
+        
+    def ultrasonic_setup(self):
+        global TRIG, ECHO
+        TRIG = 13          # Associate pin 13 to TRIG
+        ECHO = 19          # Associate pin 19 to ECHO
+        
+        GPIO.setup(TRIG, GPIO.OUT)
+        GPIO.setup(ECHO, GPIO.IN)
+        
+        
+    def motor_update(self, dir = "straight"):
+        global p_left_speed, p_right_speed
+        if dir == "left":
+            p_right_speed = 57 #60
+            p_left_speed = 45  
+            # p_left_speed = 60
+            # p_right_speed = 75  
+        
+        elif dir == "right":
+            # p_right_speed = 45
+            # p_left_speed = 52 # thinner lane
+            p_right_speed = 48
+            p_left_speed = 55
+            
+        elif dir == "straight":
+            p_left_speed = 50
+            p_right_speed = 50
+            # p_left_speed = 55
+            # p_right_speed = 68
+        
+        elif dir == "error":
+            p_left_speed = 0
+            p_right_speed = 0
+        
+        p_right.ChangeDutyCycle(p_right_speed)
+        p_left.ChangeDutyCycle(p_left_speed)
+            
+            
+        # time.sleep(1)
+        # GPIO.output(5, GPIO.HIGH)
+        # GPIO.output(6, GPIO.LOW)
+        # GPIO.output(20, GPIO.LOW)
+        # GPIO.output(21, GPIO.HIGH)
+            
+        
+
+    def mainFunc(self):
+        global stop_flag, turn_left_flag, turn_right_flag
+        global p_left_speed, p_right_speed
+        global emergency_stop
+        self.motor_setup()
+        self.ultrasonic_setup()
+        print("Setup successfully")
     
+        pulse_start = pulse_end = 0
         
-        
-        p_left = GPIO.PWM(26, 50)   # PWMA
-        p_right = GPIO.PWM(16, 50)  # PWMB 
-        
-        p_left.start(45)
-        p_right.start(45)
+        p_left.start(55)
+        p_right.start(55)
+        p_left_speed = p_right_speed = 55
         
         try:
             while True:
+                # start_time = time.time()  
+                GPIO.output(TRIG, False)
+                # print ("Waitng For Sensor To Settle")
+                time.sleep(0.1)                            #Delay of 2 seconds
+
+                GPIO.output(TRIG, True)
+                time.sleep(0.00001)                      #Delay of 0.00001 seconds
+                GPIO.output(TRIG, False)                 #Set TRIG as LOW
+
+                while GPIO.input(ECHO) == 0:
+                    pulse_start = time.time()
+                while GPIO.input(ECHO) == 1:
+                    pulse_end = time.time()
+                
+                pulse_duration = pulse_end - pulse_start
+                distance = round(pulse_duration * 17150, 2)
+                # print("Distance: ", distance)
+                
+                if 0 < distance <= 20:
+                    print("Emergency Stopped!")
+                    self.motor_update("error")
+                    emergency_stop = True
+                else:
+                    emergency_stop = False
+                    
+                
                 self.process_image()
                 # print(f"output frame size: {self.frame.shape[0]}*{self.frame.shape[1]}")
                 cv2.imshow('Output', self.frame)
                 cv2.waitKey(1)
                 
+                if not emergency_stop:
+                    if stop_flag:
+                        self.motor_update("error")
+                        print("Stopped")
+                        stop_flag = False
+                        
+                    elif turn_left_flag:
+                        self.motor_update("left")
+                        print("Move left (only right lane detected)")
+                        turn_left_flag = False
+                        
+                    elif turn_right_flag:
+                        self.motor_update("right")
+                        print("Move right (only left lane detected)")
+                        turn_right_flag = False
+                    
+                    elif self.l_curve >= 100 and self.r_curve >= 100:
+                        self.motor_update("straight")
+                        print("move straight")
+                    
+                    elif self.l_curve < self.r_curve:
+                        if self.l_curve < 100 :
+                            self.motor_update("right")
+                            print("move right")      
+                    
+                    elif self.r_curve < self.l_curve:
+                        if self.r_curve < 100:
+                            self.motor_update("left")
+                            print("move left")
+                        
+                    else:
+                        self.motor_update("straight")
+                        print("move straight")
+                        
+                    # print("Left motor: ", p_left_speed)
+                    # print("Right motor: ", p_right_speed)
+                    
+                    
+                    # print("Left curve: ", self.l_curve)
+                    # print("Right curve:  ", self.r_curve)
+                
+                # print(time.time() - start_time)
         
         except Exception as e:
             print(e)
@@ -404,7 +591,10 @@ class LaneDetectionThreads(object):
         finally:
             self.camera.release()
             cv2.destroyAllWindows()
+            p_left.stop()
+            p_right.stop()
             GPIO.cleanup()
+            sys.exit(0)
     
     
 

@@ -21,7 +21,7 @@ def calibrate_Camera():
     imgpoints = [] # 2d points in image plane.
     for img_path in images_path:
         img = cv2.imread(img_path)
-        img = cv2.resize(img, (640, 480))
+        img = cv2.resize(img, (320, 240))
         # Read calibration image
         gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)    
         # Find the chessboard corners
