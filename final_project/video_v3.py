@@ -37,24 +37,21 @@ class LaneDetectionThreads(object):
         self.r_curve = 1000
         
         self.src = np.float32(
-                    [[0, 240],  # Bottom left
-                    [80,  160],  # Top left
-                    [240,  160],  # Top right
-                    [320,  240]]) # Bottom right
+                    [[0,   240],      # Bottom left
+                     [80,  160],      # Top left
+                     [240, 160],      # Top right
+                     [320, 240]])     # Bottom right
                 
         self.dst = np.float32(
-                    [[0, 240],  # Bottom left
-                    [0,  0],  # Top left
-                    [320,  0],  # Top right
-                    [320,  240]]) # Bottom right
+                    [[0,   240],      # Bottom left
+                     [0,     0],      # Top left
+                     [320,   0],      # Top right
+                     [320, 240]])     # Bottom right
 
         
         
     def camera_update(self):
         self.frame = self.camera.read()[1]
-        # print(f"camera_update frame: {self.frame.shape[0]}*{self.frame.shape[1]}")
-        # cv2.imshow('camera', self.frame)
-        # cv2.waitKey(1)
         self.camera_thread = threading.Timer(0.02, self.camera_update)
         self.camera_thread.start()
         
@@ -121,7 +118,6 @@ class LaneDetectionThreads(object):
         return binary_output
 
     # Define a function that thresholds the S-channel of HLS
-    # Use exclusive lower bound (>) and inclusive upper (<=)
     def hls_select(self, img, thresh=(0, 255)):
         # 1) Convert to HLS color space
         hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
@@ -155,7 +151,6 @@ class LaneDetectionThreads(object):
         # HYPERPARAMETERS
         # Choose the number of sliding windows
         nwindows = 9
-        # nwindows = 6
         # Set the width of the windows +/- margin
         margin = 100
         # Set minimum number of pixels found to recenter window
@@ -192,7 +187,6 @@ class LaneDetectionThreads(object):
             cv2.rectangle(out_img,(win_xright_low,win_y_low),
             (win_xright_high,win_y_high),(0,255,0), 2) 
             
-            ### TO-DO: Identify the nonzero pixels in x and y within the window ###
             good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
                             (nonzerox >= win_xleft_low) &  (nonzerox < win_xleft_high)).nonzero()[0]
             good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
@@ -231,7 +225,7 @@ class LaneDetectionThreads(object):
         # Find our lane pixels first
         leftx, lefty, rightx, righty, out_img = self.find_lane_pixels(binary_warped)
 
-        # Fit a second order polynomial to each using `np.polyfit` ###
+        # Fit a second order polynomial to each using np.polyfit
         # Generate x and y values for plotting
         ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
         try:
@@ -258,20 +252,12 @@ class LaneDetectionThreads(object):
                 # print("No right fit")
                 turn_right_flag = True
                 
-            # if turn_left_flag and turn_right_flag:
-            #     stop_flag = True
-            #     turn_left_flag = False
-            #     turn_right_flag = False
-            #     print("Stopped (both flags)")
-                
-            
             left_fit = [1,1,0]
             right_fit = [1,1,0]
             left_fitx = 1*ploty**2 + 1*ploty
             right_fitx = 1*ploty**2 + 1*ploty
             
                 
-        ## Visualization ##
         # Colors in the left and right lane regions
         out_img[lefty, leftx] = [255, 0, 0]
         out_img[righty, rightx] = [0, 0, 255]
@@ -294,12 +280,6 @@ class LaneDetectionThreads(object):
             cv2.circle(out_img, (int(left_fitx[index]), int(ploty[index])), 3, (255,255,0))
             cv2.circle(out_img, (int(right_fitx[index]), int(ploty[index])), 3, (255,255,0))                   
         region_img = cv2.addWeighted(line_img, 1, window_img, 0.3, 0)  
-        # Plot the results
-        # Visualize undirstorsion
-    #    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-    #    ax1.imshow(line_img)
-    #    ax2.imshow(out_img)
-
         return region_img,left_fit,right_fit,left_fitx,right_fitx,leftx, lefty, rightx, righty,ploty
           
 
@@ -326,18 +306,18 @@ class LaneDetectionThreads(object):
 
     def add_curvature(self, img, left_fit, right_fit, left_fitx, right_fitx,leftx, lefty, rightx, righty):
         global p_left_speed, p_right_speed
-        leftx = leftx[::-1]  # Reverse to match top-to-bottom in y
-        rightx = rightx[::-1]  # Reverse to match top-to-bottom in y
+        leftx = leftx[::-1]         # Reverse to match top-to-bottom in y
+        rightx = rightx[::-1]       # Reverse to match top-to-bottom in y
         ploty = np.linspace(0, img.shape[0] - 1, img.shape[0])
-        # Fit a second order polynomial to pixel positions in each fake lane line
+
         left_fit = np.polyfit(ploty, left_fitx, 2)
         left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
         right_fit = np.polyfit(ploty, right_fitx, 2)
         right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
         # Define conversions in x and y from pixels space to meters
-        ym_per_pix = 3/240 # meters per pixel in y dimension
-        xm_per_pix = 0.2/320 # meters per pixel in x dimension
+        ym_per_pix = 3/240          # meters per pixel in y dimension
+        xm_per_pix = 0.2/320        # meters per pixel in x dimension
 
         # Fit new polynomials to x,y in world space
         y_eval = np.max(ploty)
@@ -356,8 +336,6 @@ class LaneDetectionThreads(object):
         self.l_curve = float(left_curverad)
         self.r_curve = float(right_curverad)
         
-        
-    #    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
         road_mid = img.shape[1]/2    
         car_mid = (right_fitx[239] + left_fitx[239])/2
         
@@ -380,9 +358,6 @@ class LaneDetectionThreads(object):
         word_img = cv2.putText(img,mid_dev_word,(20,40),cv2.FONT_HERSHEY_SIMPLEX,0.3,(228,48,174),2)
         word_img = cv2.putText(img,l_speed,(100,20),cv2.FONT_HERSHEY_SIMPLEX,0.3,(0,255,0),2)
         word_img = cv2.putText(img,r_speed,(100,40),cv2.FONT_HERSHEY_SIMPLEX,0.3,(0,255,0),2)
-        
-        
-        
         return word_img
 
 
@@ -391,18 +366,12 @@ class LaneDetectionThreads(object):
 
         self.frame = cv2.undistort(self.frame, mtx, dist, None, mtx)
         # print(self.frame.shape[0], self.frame.shape[1])
-        
         grad_x = self.abs_sobel_thresh(self.frame, orient='x', sobel_kernel=15, thresh=(30, 100))
-        grad_y = self.abs_sobel_thresh(self.frame, orient='y', sobel_kernel=15, thresh=(30, 100))
-        
+        grad_y = self.abs_sobel_thresh(self.frame, orient='y', sobel_kernel=15, thresh=(30, 100))   
         mag_binary = self.mag_thres(self.frame, sobel_kernel=15, thresh=(50, 100))
-
         dir_binary = self.dir_thresh(self.frame, sobel_kernel=15, thresh=(0.7, 1.3))   
         hls_binary = self.hls_select(self.frame, thresh=(170, 255))
-        
-        # Run the function
         combined = self.combine_threshs(grad_x, grad_y, mag_binary, dir_binary, hls_binary, ksize=15)
-        
         warped =  self.perspective(combined) 
         region_img,left_fit,right_fit,left_fitx,right_fitx,leftx, lefty, rightx, righty,ploty = self.fit_polynomial(warped)
         
@@ -424,6 +393,7 @@ class LaneDetectionThreads(object):
             self.camera.release()
             cv2.destroyAllWindows()
             sys.exit(0)
+    
     
     def motor_setup(self):
         global p_left
@@ -452,8 +422,8 @@ class LaneDetectionThreads(object):
         
     def ultrasonic_setup(self):
         global TRIG, ECHO
-        TRIG = 13          # Associate pin 13 to TRIG
-        ECHO = 19          # Associate pin 19 to ECHO
+        TRIG = 13                    # Associate pin 13 to TRIG
+        ECHO = 19                    # Associate pin 19 to ECHO
         
         GPIO.setup(TRIG, GPIO.OUT)
         GPIO.setup(ECHO, GPIO.IN)
@@ -462,22 +432,20 @@ class LaneDetectionThreads(object):
     def motor_update(self, dir = "straight"):
         global p_left_speed, p_right_speed
         if dir == "left":
-            p_right_speed = 57 #60
+            p_right_speed = 57 
             p_left_speed = 45  
-            # p_left_speed = 60
-            # p_right_speed = 75  
+            # p_left_speed = 60     # thinner lane
+            # p_right_speed = 75    # thinner lane 
         
         elif dir == "right":
-            # p_right_speed = 45
-            # p_left_speed = 52 # thinner lane
+            # p_right_speed = 45    # thinner lane
+            # p_left_speed = 52     # thinner lane
             p_right_speed = 48
             p_left_speed = 55
             
         elif dir == "straight":
             p_left_speed = 50
             p_right_speed = 50
-            # p_left_speed = 55
-            # p_right_speed = 68
         
         elif dir == "error":
             p_left_speed = 0
@@ -485,13 +453,6 @@ class LaneDetectionThreads(object):
         
         p_right.ChangeDutyCycle(p_right_speed)
         p_left.ChangeDutyCycle(p_left_speed)
-            
-            
-        # time.sleep(1)
-        # GPIO.output(5, GPIO.HIGH)
-        # GPIO.output(6, GPIO.LOW)
-        # GPIO.output(20, GPIO.LOW)
-        # GPIO.output(21, GPIO.HIGH)
             
         
 
@@ -511,14 +472,11 @@ class LaneDetectionThreads(object):
         
         try:
             while True:
-                # start_time = time.time()  
                 GPIO.output(TRIG, False)
-                # print ("Waitng For Sensor To Settle")
-                time.sleep(0.1)                            #Delay of 2 seconds
-
+                time.sleep(0.1)                          # Delay of 2 seconds
                 GPIO.output(TRIG, True)
-                time.sleep(0.00001)                      #Delay of 0.00001 seconds
-                GPIO.output(TRIG, False)                 #Set TRIG as LOW
+                time.sleep(0.00001)                      # Delay of 0.00001 seconds
+                GPIO.output(TRIG, False)                 # Set TRIG as LOW
 
                 while GPIO.input(ECHO) == 0:
                     pulse_start = time.time()
@@ -575,15 +533,6 @@ class LaneDetectionThreads(object):
                     else:
                         self.motor_update("straight")
                         print("move straight")
-                        
-                    # print("Left motor: ", p_left_speed)
-                    # print("Right motor: ", p_right_speed)
-                    
-                    
-                    # print("Left curve: ", self.l_curve)
-                    # print("Right curve:  ", self.r_curve)
-                
-                # print(time.time() - start_time)
         
         except Exception as e:
             print(e)
@@ -595,10 +544,8 @@ class LaneDetectionThreads(object):
             p_right.stop()
             GPIO.cleanup()
             sys.exit(0)
-    
-    
+
 
 if __name__ == '__main__':
     laneDetect = LaneDetectionThreads()
     laneDetect.mainFunc()
-    
